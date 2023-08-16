@@ -1,17 +1,18 @@
-require('dotenv').config
+require('dotenv').config()
 
-const express = require('express')
-const ejs = require('ejs')
-const mongoose = require('mongoose')
-const bodyParser = require('body-parser')
-const session = require('express-session');
+const express = require("express")
+const ejs = require("ejs")
+const mongoose = require("mongoose")
+const bodyParser = require("body-parser")
+const session = require("express-session");
 const passport = require("passport");
 const passportLocalMongoose = require("passport-local-mongoose");
-
+const GoogleStrategy = require("passport-google-oauth20").Strategy;
+const findOrCreate = require("mongoose-findorcreate")
 
 const app = express();
-app.use(express.static('public'));
-app.set('view engine', 'ejs');
+app.use(express.static("public"));
+app.set("view engine", "ejs");
 app.use(bodyParser.urlencoded({extended:true}));
 
 app.use(session({
@@ -33,21 +34,47 @@ async function dbConnection() {
 
 const userSchema = new mongoose.Schema({
     username: String,
-    password: String
+    password: String,
+    googleId: String
 });
 
 userSchema.plugin(passportLocalMongoose);
+userSchema.plugin(findOrCreate)
 
-const User  = mongoose.model('User', userSchema);
+const User  = mongoose.model("User", userSchema);
 
 passport.use(User.createStrategy());
+passport.use(new GoogleStrategy({
+  clientID: process.env.CLIENT_ID,
+  clientSecret: process.env.CLIENT_SECRET,
+  callbackURL: "http://localhost:3000/auth/google/secrets",
+  // userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo"
+},
+function(accessToken, refreshToken, profile, cb) {
+  User.findOrCreate({ googleId: profile.id }, function (err, user) {
+    return cb(err, user);
+  });
+}
+));
 
-passport.serializeUser(User.serializeUser());
-passport.deserializeUser(User.deserializeUser());
+passport.serializeUser(function(user, cb) {
+  process.nextTick(function() {
+    return cb(null, {
+      id: user.id,
+      username: user.username,
+      picture: user.picture
+    });
+  });
+});
 
+passport.deserializeUser(function(user, cb) {
+  process.nextTick(function() {
+    return cb(null, user);
+  });
+});
 
-app.get('/', (req, res) => {
-    res.render('home');
+app.get("/", (req, res) => {
+    res.render("home");
 });
 
 app.get("/secrets", function(req, res){
@@ -66,9 +93,21 @@ app.get("/secrets", function(req, res){
   });
 
 
-app.route('/register')
+app.get("/auth/google",
+  passport.authenticate("google", { scope: ["profile"] })
+);
+
+app.get("/auth/google/secrets", 
+  passport.authenticate("google", { failureRedirect: "/login" }),
+  function(req, res) {
+    // Successful authentication, redirect home.
+    res.redirect("/secrets");
+});
+
+
+app.route("/register")
     .get((req, res) => {
-        res.render('register');
+        res.render("register");
     })
     .post((req, res) => {
         User.register({username: req.body.username}, req.body.password, (err, user) => {
@@ -83,9 +122,9 @@ app.route('/register')
       
     });
 
-app.route('/login')
+app.route("/login")
     .get((req, res) => {
-        res.render('login');
+        res.render("login");
     })
 
     .post((req, res) => {
@@ -106,4 +145,4 @@ app.route('/login')
      
     });
 
-app.listen(3000, () => console.log('Running on port 3000.'))
+app.listen(3000, () => console.log("Running on port 3000."))
